@@ -1,0 +1,66 @@
+{
+  "name": "chatluna-plugin-onebot-poke",
+  "version": "0.0.1",
+  "description": "响应 NapCat、SnowLuma、LLBOT 的 OneBot 戳一戳事件，按权重回复预设消息或执行指令，支持响应间隔和作用域设置",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sor85/chatluna-plugin-onebot-poke.git"
+  },
+  "homepage": "https://github.com/Sor85/chatluna-plugin-onebot-poke#readme",
+  "bugs": { "url": "https://github.com/Sor85/chatluna-plugin-onebot-poke/issues" },
+  "keywords": ["chatluna-plugin", "onebot", "poke", "napcat", "snowluma", "llbot"],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./client": { "types": "./client/index.ts", "default": "./client/index.ts" }
+  },
+  "files": ["lib", "dist", "client", "README.md", "LICENSE"],
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "cd ../.. && yarn exec tsc --build external/onebot-poke/tsconfig.json && yarn yakumo rolldown onebot-poke && yarn workspace chatluna-plugin-onebot-poke exec node scripts/build-client.mjs",
+    "typecheck": "cd ../.. && yarn exec tsc -p external/onebot-poke/tsconfig.check.json && yarn exec tsc -p external/onebot-poke/tsconfig.client.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@chatluna/schema": ">=2.0.0-alpha.0",
+    "@satorijs/core": "~4.6.1",
+    "cordis": "^4.0.0-rc.12",
+    "koishi": "^4.18.11"
+  },
+  "devDependencies": {
+    "@chatluna/permission": "workspace:*",
+    "@chatluna/schema": "workspace:*",
+    "@chatluna/ui-client": "workspace:*",
+    "@chatluna/ui-kit": "workspace:*",
+    "@chatluna/ui-schema-form": "workspace:*",
+    "@chatluna/ui-server": "workspace:*",
+    "@cordisjs/plugin-database": "4.2.0",
+    "@cordisjs/plugin-database-sqlite": "5.2.0",
+    "@satorijs/core": "~4.6.1",
+    "@types/node": "24.13.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "cordis": "4.0.0-rc.12",
+    "koishi": "npm:@koishijs/core@4.18.11",
+    "koishi-plugin-adapter-onebot": "6.9.5",
+    "jsdom": "^31.0.0",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vitest": "^3.2.4"
+  },
+  "cordis": {
+    "description": {
+      "zh": "OneBot 戳一戳加权消息与指令响应，支持群聊、私聊和响应间隔",
+      "en": "Weighted message and command responses to OneBot pokes with scoped cooldowns"
+    },
+    "service": { "required": ["koishi", "database", "permissions"], "optional": ["chatluna_webui"] }
+  }
+}
