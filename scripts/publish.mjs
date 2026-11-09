@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { linkReleaseDependencies, prepareReleaseWorkspace } from './release-workspace.mjs'
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const registry = 'https://registry.npmjs.org'
@@ -43,35 +44,6 @@ function execute(command, args, { cwd = source, quiet = false, allowFailure = fa
 
 function git(args, options = {}) {
     return execute('git', args, { quiet: true, ...options })
-}
-
-function assertHostStopped(mirror) {
-    // PID files are per instance, not a registry of processes sharing this code copy.
-    // Do not log command lines: other processes may pass private credentials.
-    const normalize = (value) => {
-        const path = value.replaceAll('\\', '/')
-        return process.platform === 'win32' ? path.toLowerCase() : path
-    }
-    const prefix = normalize(mirror) + '/'
-    const referencesHost = (command) => {
-        const text = normalize(command)
-        return text.includes(prefix + 'packages/cli/launcher/') || text.includes(prefix + 'node_modules/@cordisjs/plugin-cli-cordis/')
-    }
-    let active
-    if (process.platform === 'win32') {
-        const result = execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-            'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress'
-        ], { quiet: true })
-        const rows = JSON.parse(result.stdout || '[]')
-        active = [rows].flat().filter((row) => row && typeof row.CommandLine === 'string' && referencesHost(row.CommandLine)).map((row) => row.ProcessId)
-    } else {
-        const result = execute('ps', ['-axo', 'pid=,args='], { quiet: true })
-        active = result.stdout.split('\n').flatMap((line) => {
-            const match = /^\s*(\d+)\s+(.+)$/.exec(line)
-            return match && referencesHost(match[2]) ? [match[1]] : []
-        })
-    }
-    if (active.length) fail(`该开发副本仍有 ChatLuna 进程运行（PID：${active.join(', ')}）；停止对应 launcher/worker 或改用闲置副本后重试，避免清理产物触发热重载错误`)
 }
 
 function assertUnchanged(head) {
@@ -140,12 +112,12 @@ async function main() {
 
 发布 package.json 中的现有版本，不自动更新版本或提交代码。
 正式发布要求干净工作区、HEAD 已推送到 origin 同名分支、Git/npm 版本未发布。
---dry-run  允许未提交内容，执行清理、构建、测试、打包和 npm 演练，不上传或打标签
+--dry-run  允许未提交内容，在临时 workspace 完成构建、测试、打包和 npm 演练，不上传或打标签
 --otp      npm 两步验证码，输出中隐藏；无需验证时不传
 --mirror   ChatLuna 开发副本，默认 ../../chatluna-v2-mirror，也可用 CHATLUNA_V2_ROOT
 
 正式发布经 npm 版本与 dist-tag 确认后，才创建并推送 v<版本> 标签。
-正式发布和演练均要求开发副本闲置；检测到相关 launcher/worker 时拒绝同步或清理。
+正式发布和演练均使用临时 workspace，不同步、清理或停止运行中的开发副本。
 打包产物保留在系统临时目录；脚本不安装依赖、不启动服务、不推送分支。`)
         return
     }
@@ -192,21 +164,21 @@ async function main() {
     const mirror = realpathSync(resolve(mirrorInput.replaceAll('\\', '/')))
     const host = JSON.parse(readFileSync(join(mirror, 'package.json'), 'utf8'))
     if (host.name !== '@chatluna/root' || !host.workspaces?.includes('external/*')) fail('目标不是 ChatLuna 开发副本')
-    const target = join(mirror, 'external/onebot-poke')
     console.log(`[publish] ${name}@${version} → ${channel}${dryRun ? '（演练，不上传）' : ''}`)
-    assertHostStopped(mirror)
-    execute(process.execPath, [join(source, 'scripts/dev.mjs'), 'sync', '--mirror', mirror])
-    if (realpathSync(target) !== target) fail('发布目标不允许符号链接')
-    assertHostStopped(mirror)
-    for (const entry of ['lib', 'dist', 'tsconfig.tsbuildinfo']) {
-        const path = join(target, entry)
-        if (existsSync(path) && lstatSync(path).isSymbolicLink()) fail(`构建产物不允许符号链接：${entry}`)
-        rmSync(path, { recursive: true, force: true })
-    }
-    execute(process.execPath, [join(source, 'scripts/dev.mjs'), 'check', '--mirror', mirror])
+    if (manifest.scripts?.prepack || manifest.scripts?.postpack) fail('发布包不得包含 prepack/postpack；构建步骤应放在显式检查流程中')
+    const list = execute('yarn', ['workspaces', 'list', '--json'], { cwd: mirror, quiet: true })
+    const locations = list.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line).location)
+    if (!locations.includes('.')) fail('无法读取开发副本的 workspace 元数据')
+    workdir = realpathSync(mkdtempSync(join(tmpdir(), 'onebot-poke-publish-')))
+    const workspace = join(workdir, 'workspace')
+    prepareReleaseWorkspace(mirror, workspace, locations)
+    console.log(`[publish] 隔离构建目录：${workspace}`)
+    execute(process.execPath, [join(source, 'scripts/dev.mjs'), 'sync', '--mirror', workspace])
+    linkReleaseDependencies(mirror, workspace)
+    execute(process.execPath, [join(source, 'scripts/dev.mjs'), 'check', '--mirror', workspace])
     if (!dryRun) assertUnchanged(head)
 
-    workdir = mkdtempSync(join(tmpdir(), 'onebot-poke-publish-'))
+    const target = join(workspace, 'external/onebot-poke')
     const tarball = join(workdir, 'package.tgz')
     execute('yarn', ['pack', '--out', tarball], { cwd: target })
     const files = execute('tar', ['-tzf', tarball], { quiet: true }).stdout.split('\n')

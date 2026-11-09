@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
@@ -17,10 +17,22 @@ function fixture(options: Record<string, unknown> = {}, version = '0.0.1') {
     writeFileSync(join(root, 'options.json'), JSON.stringify(options))
     writeFileSync(join(source, 'package.json'), JSON.stringify({
         name: 'chatluna-plugin-onebot-poke', version, type: 'module',
-        devDependencies: { '@chatluna/schema': 'workspace:*' }
+        devDependencies: { '@chatluna/schema': 'workspace:*' },
+        scripts: options['packHook'] ? { prepack: 'exit 1' } : {}
     }))
     writeFileSync(join(mirror, 'package.json'), JSON.stringify({ name: '@chatluna/root', workspaces: ['external/*'] }))
     copyFileSync(resolve('scripts/publish.mjs'), join(source, 'scripts/publish.mjs'))
+    copyFileSync(resolve('scripts/release-workspace.mjs'), join(source, 'scripts/release-workspace.mjs'))
+    mkdirSync(join(mirror, '.yarn'), { recursive: true })
+    mkdirSync(join(mirror, 'node_modules'), { recursive: true })
+    writeFileSync(join(mirror, '.yarn/install-state.gz'), 'fixture install state')
+    writeFileSync(join(mirror, 'node_modules/.yarn-state.yml'), 'fixture linker state')
+    writeFileSync(join(mirror, 'yarn.lock'), '# fixture lockfile\n')
+    writeFileSync(join(mirror, '.yarnrc.yml'), 'npmAuthToken: fixture-private-credential\n')
+    mkdirSync(join(mirror, 'node_modules/fixture-dependency'), { recursive: true })
+    writeFileSync(join(mirror, 'node_modules/fixture-dependency/index.js'), 'export const value = 1\n')
+    mkdirSync(join(mirror, 'node_modules/.vite'), { recursive: true })
+    writeFileSync(join(mirror, 'node_modules/.vite/cache'), 'live cache')
     copyFileSync(resolve('tests/helpers/publish-cli.mjs'), join(root, 'fake-cli.mjs'))
     writeFileSync(join(source, 'scripts/dev.mjs'), "import '../../fake-cli.mjs'\n")
     for (const folder of ['lib', 'dist']) {
@@ -77,52 +89,79 @@ describe('发布脚本', () => {
         expect(invalid.calls).toEqual([])
     })
 
-    it('演练允许未提交内容，清产物后检查并从解包目录演练，不打标签或推送', () => {
+    it('演练允许未提交内容，在隔离目录构建打包，不改运行副本或推送标签', () => {
         const app = fixture({ dirty: true, unborn: true })
         const result = app.run(['--dry-run', '--mirror', app.mirror])
         expect(result.status, result.output).toBe(0)
         expect(result.calls.some((call) => call.command === 'git')).toBe(false)
         expect(result.calls.filter((call) => call.command === 'dev').map((call) => call.args[0])).toEqual(['sync', 'check'])
-        const pack = result.calls.find((call) => call.command === 'yarn')
+        const pack = result.calls.find((call) => call.command === 'yarn' && call.args[0] === 'pack')
         expect(pack?.args[0]).toBe('pack')
         const publish = publishCall(result.calls)
         expect(publish?.args).toEqual(expect.arrayContaining(['--dry-run', '--ignore-scripts', '--access', 'public', '--tag', 'latest']))
         expect(publish?.args[1]).toMatch(/[/\\]package$/)
         expect(existsSync(join(publish?.args[1] ?? '', 'README.md'))).toBe(true)
-        expect(existsSync(join(app.target, 'lib/stale.txt'))).toBe(false)
-        expect(existsSync(join(app.target, 'dist/stale.txt'))).toBe(false)
-        expect(existsSync(join(app.target, 'tsconfig.tsbuildinfo'))).toBe(false)
+        expect(readFileSync(join(app.target, 'lib/stale.txt'), 'utf8')).toBe('stale')
+        expect(readFileSync(join(app.target, 'dist/stale.txt'), 'utf8')).toBe('stale')
+        expect(readFileSync(join(app.target, 'tsconfig.tsbuildinfo'), 'utf8')).toBe('stale')
+        const sync = result.calls.find((call) => call.command === 'dev' && call.args[0] === 'sync')
+        if (!sync || !pack) throw new Error('缺少隔离构建调用')
+        const workspace = sync.args[sync.args.indexOf('--mirror') + 1]
+        expect(workspace).not.toBe(app.mirror)
+        expect(realpathSync(pack.cwd)).toBe(realpathSync(join(workspace, 'external/onebot-poke')))
+        expect(readFileSync(join(workspace, '.yarnrc.yml'), 'utf8')).not.toContain('fixture-private-credential')
+        expect(lstatSync(join(workspace, 'node_modules')).isSymbolicLink()).toBe(false)
+        expect(lstatSync(join(workspace, '.yarn/install-state.gz')).isSymbolicLink()).toBe(false)
+        expect(realpathSync(join(workspace, 'node_modules/fixture-dependency')))
+            .toBe(realpathSync(join(app.mirror, 'node_modules/fixture-dependency')))
+        expect(readFileSync(join(app.mirror, 'node_modules/.vite/cache'), 'utf8')).toBe('live cache')
+        expect(readFileSync(join(workspace, 'node_modules/.vite/cache'), 'utf8')).toBe('isolated cache')
         expect(tagCalls(result.calls)).toEqual([])
     })
 
-    it.each([{ args: [] }, { args: ['--dry-run'] }])('使用中的开发副本拒绝发布或演练 $args，不清理现有产物', ({ args }) => {
+    it.each([{ args: [] }, { args: ['--dry-run'] }])('宿主运行时仍可发布或演练 $args，不检查或停止进程', ({ args }) => {
         const app = fixture({ runningHost: true })
         const result = app.run(args)
+        expect(result.status, result.output).toBe(0)
+        expect(result.calls.some((call) => call.command === 'ps')).toBe(false)
+        expect(readFileSync(join(app.target, 'lib/stale.txt'), 'utf8')).toBe('stale')
+        expect(publishCall(result.calls)).toBeDefined()
+    })
+
+    it('构建失败只保留隔离产物，运行中的副本保持原样', () => {
+        const app = fixture({ buildFailure: true, runningHost: true })
+        const result = app.run(['--dry-run'])
         expect(result.status).toBe(1)
-        expect(result.output).toContain('仍有 ChatLuna 进程运行')
-        expect(result.output).toContain('4321')
-        expect(result.output).not.toContain('/packages/cli/launcher/lib/bin.js')
-        expect(result.calls.some((call) => call.command === 'dev')).toBe(false)
-        expect(existsSync(join(app.target, 'lib/stale.txt'))).toBe(true)
+        expect(readFileSync(join(app.target, 'lib/stale.txt'), 'utf8')).toBe('stale')
+        expect(readFileSync(join(app.target, 'tsconfig.tsbuildinfo'), 'utf8')).toBe('stale')
         expect(publishCall(result.calls)).toBeUndefined()
     })
 
-    it('同步后新启动的宿主也会阻止清理', () => {
-        const app = fixture({ hostStartsAfterSync: true })
+    it('缺少依赖安装状态时提示安装，不写入原副本补装', () => {
+        const app = fixture()
+        rmSync(join(app.mirror, '.yarn/install-state.gz'))
         const result = app.run(['--dry-run'])
         expect(result.status).toBe(1)
-        expect(result.output).toContain('4322')
-        expect(result.calls.filter((call) => call.command === 'dev').map((call) => call.args[0])).toEqual(['sync'])
-        expect(existsSync(join(app.target, 'lib/stale.txt'))).toBe(true)
-        expect(publishCall(result.calls)).toBeUndefined()
+        expect(result.output).toContain('先在开发副本完成依赖安装')
+        expect(result.calls.some((call) => call.command === 'dev')).toBe(false)
+        expect(result.calls.some((call) => call.command === 'yarn' && call.args[0] === 'install')).toBe(false)
     })
 
-    it('无法检查进程时拒绝演练，不假定副本闲置', () => {
-        const app = fixture({ processInspectionFailure: true })
+    it('拒绝会自行执行的 pack hook，不运行额外脚本', () => {
+        const app = fixture({ packHook: true })
         const result = app.run(['--dry-run'])
         expect(result.status).toBe(1)
-        expect(existsSync(join(app.target, 'lib/stale.txt'))).toBe(true)
+        expect(result.output).toContain('不得包含 prepack/postpack')
+        expect(result.calls.some((call) => call.command === 'yarn')).toBe(false)
+    })
+
+    it('拒绝越界 workspace 元数据，不写入任意路径', () => {
+        const app = fixture({ unsafeWorkspace: true })
+        const result = app.run(['--dry-run'])
+        expect(result.status).toBe(1)
+        expect(result.output).toContain('workspace 路径越界')
         expect(result.calls.some((call) => call.command === 'dev')).toBe(false)
+        expect(readFileSync(join(app.target, 'lib/stale.txt'), 'utf8')).toBe('stale')
     })
 
     it.each([

@@ -10,7 +10,7 @@ ChatLuna v2 / Cordis 4 的独立扩展插件。接收 OneBot v11 戳一戳事件
 - 当前目录是唯一源码来源，不安装依赖、不生成锁文件或构建产物。通过 `node scripts/dev.mjs` 单向同步到 v2 的 `external/onebot-poke`，在该 workspace 中执行 Yarn、TypeScript 和 Vitest。
 - 在源码目录执行 `node scripts/dev.mjs install` 完成首次同步及依赖安装；修改后执行 `node scripts/dev.mjs check`，依次同步、构建前后端、检查类型及运行测试。也支持单独执行 `sync`、`build`、`typecheck`、`test`。
 - 开发副本默认位于相对源码目录的 `../../chatluna-v2-mirror`，可用 `--mirror <路径>` 或 `CHATLUNA_V2_ROOT` 覆盖；需要 Node.js ≥24 和 Yarn 4。同步只管理自身标记的文件，保留副本依赖和构建产物，拒绝覆盖未归属的已有目录。
-- 结束前至少运行插件测试、类型检查和构建；不把协议夹具测试描述为三端真实 QQ 联调。发布前清理副本 `lib`、`dist` 和 `tsconfig.tsbuildinfo`，再按 ChatLuna 插件规范重新构建、测试及打包。
+- 结束前至少运行插件测试、类型检查和构建；不把协议夹具测试描述为三端真实 QQ 联调。发布使用临时隔离 workspace，从空产物目录定向构建、测试及打包，不清理运行副本的 `lib`、`dist` 或 `tsconfig.tsbuildinfo`。
 - README 面向插件使用者，不标注 ChatLuna 的开发分支版本，不包含本地开发与加载步骤；开发命令和环境约定放在本文件。
 - 不提交、发布、创建分支或更改宿主运行配置，除非用户明确授权。
 

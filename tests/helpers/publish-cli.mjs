@@ -1,4 +1,4 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
@@ -10,7 +10,7 @@ const command = dev ? 'dev' : process.argv[2]
 const args = process.argv.slice(dev ? 2 : 3)
 appendFileSync(join(root, 'calls.jsonl'), JSON.stringify({ command, args, cwd: process.cwd() }) + '\n')
 const head = 'a'.repeat(40)
-const target = join(root, 'mirror/external/onebot-poke')
+const target = dev ? join(args[args.indexOf('--mirror') + 1], 'external/onebot-poke') : process.cwd()
 const source = join(root, 'source')
 const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
 function fail(text) {
@@ -22,12 +22,7 @@ function file(path, content) {
     writeFileSync(path, content)
 }
 if (command === 'ps') {
-    if (options.processInspectionFailure) fail('simulated process inspection failure')
-    if (options.runningHost) console.log(`4321 node ${realpathSync(join(root, 'mirror'))}/packages/cli/launcher/lib/bin.js dev`)
-    if (options.hostStartsAfterSync && existsSync(join(root, 'synced'))) {
-        console.log(`4322 node --import file://${realpathSync(join(root, 'mirror'))}/packages/cli/launcher/lib/dev.js worker.js`)
-    }
-    console.log('9999 node /another/mirror/packages/cli/launcher/lib/bin.js dev')
+    fail('隔离发布不应检查或停止宿主进程')
 } else if (command === 'git') {
     if (args[0] === 'rev-parse') {
         if (options.unborn) fail('no HEAD')
@@ -54,7 +49,7 @@ if (command === 'ps') {
     if (args[0] === 'check') {
         if (options.buildFailure) fail('simulated build failure')
         for (const entry of ['lib', 'dist', 'tsconfig.tsbuildinfo']) {
-            if (existsSync(join(target, entry))) fail(`发布前没有清理 ${entry}`)
+            if (existsSync(join(target, entry))) fail(`隔离构建目录不应有旧产物 ${entry}`)
         }
         file(join(target, 'lib/index.js'), 'export const name = "test"\n')
         file(join(target, 'lib/index.d.ts'), 'export declare const name: string\n')
@@ -65,8 +60,15 @@ if (command === 'ps') {
         file(join(target, 'README.md'), '# 测试插件\n')
         file(join(target, 'LICENSE'), 'MIT\n')
         file(join(root, 'built'), 'yes')
+        file(join(target, '../../node_modules/.vite/cache'), 'isolated cache')
     } else if (args[0] !== 'sync') fail(`未预期的开发命令：${args}`)
 } else if (command === 'yarn') {
+    if (args[0] === 'workspaces') {
+        console.log(JSON.stringify({ name: '@chatluna/root', location: '.' }))
+        if (options.unsafeWorkspace) console.log(JSON.stringify({ name: 'outside', location: '../escape' }))
+        console.log(JSON.stringify({ name: 'chatluna-plugin-onebot-poke', location: 'external/onebot-poke' }))
+        process.exit(0)
+    }
     if (args[0] !== 'pack') fail(`未预期的 Yarn 命令：${args}`)
     if (options.packFailure) fail('simulated pack failure')
     const stage = join(root, 'pack-stage')
