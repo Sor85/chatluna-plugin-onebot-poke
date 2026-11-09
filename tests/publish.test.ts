@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
 const fixtures: string[] = []
-interface Call { command: string; args: string[]; cwd: string }
+interface Call { command: string; args: string[]; cwd: string; stdinIsTTY: boolean; stdoutIsTTY: boolean }
 
 function fixture(options: Record<string, unknown> = {}, version = '0.0.1') {
     const root = mkdtempSync(join(tmpdir(), 'poke-publish-test-'))
@@ -45,10 +45,16 @@ function fixture(options: Record<string, unknown> = {}, version = '0.0.1') {
         writeFileSync(executable, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(root, 'fake-cli.mjs'))} ${command} "$@"\n`)
         chmodSync(executable, 0o755)
     }
-    function run(args: string[] = []) {
-        const result = spawnSync(process.execPath, [join(source, 'scripts/publish.mjs'), ...args], {
+    function run(args: string[] = [], terminal = false) {
+        const invocation = [process.execPath, join(source, 'scripts/publish.mjs'), ...args]
+        const quote = (part: string) => `'${part.replaceAll("'", "'\\''")}'`
+        const scriptArgs = process.platform === 'darwin'
+            ? ['-q', '/dev/null', ...invocation]
+            : ['-q', '-e', '-c', invocation.map(quote).join(' '), '/dev/null']
+        const result = spawnSync(terminal ? 'script' : process.execPath, terminal ? scriptArgs : invocation.slice(1), {
             cwd: source,
             encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
             timeout: 20000,
             env: {
                 ...process.env,
@@ -231,6 +237,33 @@ describe('发布脚本', () => {
         const tag = tagCalls(result.calls)[0]
         if (!tag) throw new Error('缺少 Git 标签调用')
         expect(result.calls.indexOf(tag)).toBeGreaterThan(result.calls.indexOf(checks[1]))
+    })
+
+    it.skipIf(!['darwin', 'linux'].includes(process.platform))('真实终端发布保留 npm 的 TTY 鉴权条件，查询仍捕获输出', () => {
+        const result = fixture({ requirePublishTty: true }).run([], true)
+        expect(result.status, result.output).toBe(0)
+        const publish = publishCall(result.calls)
+        expect(publish?.stdinIsTTY).toBe(true)
+        expect(publish?.stdoutIsTTY).toBe(true)
+        const query = result.calls.find((call) => call.command === 'npm' && call.args[0] === 'whoami')
+        expect(query?.stdoutIsTTY).toBe(false)
+        expect(result.output).toContain('已确认 chatluna-plugin-onebot-poke@0.0.1')
+    })
+
+    it.skipIf(!['darwin', 'linux'].includes(process.platform))('真实终端显式传 OTP 时仍脱敏，不回显验证码', () => {
+        const result = fixture({ requirePublishTty: true }).run(['--otp=246810'], true)
+        expect(result.status, result.output).toBe(0)
+        expect(publishCall(result.calls)?.stdoutIsTTY).toBe(false)
+        expect(result.output).not.toContain('246810')
+        expect(result.output).toContain('[已隐藏]')
+        expect(result.output).toContain('已确认 chatluna-plugin-onebot-poke@0.0.1')
+    })
+
+    it('非交互鉴权失败时不打标签，也不伪造授权成功', () => {
+        const result = fixture({ requirePublishTty: true }).run()
+        expect(result.status).toBe(1)
+        expect(result.output).toContain('EOTP')
+        expect(tagCalls(result.calls)).toEqual([])
     })
 
     it('隐藏命令与失败输出中的 OTP，npm 失败后不打标签', () => {

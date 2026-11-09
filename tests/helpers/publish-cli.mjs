@@ -8,7 +8,10 @@ const options = JSON.parse(readFileSync(join(root, 'options.json'), 'utf8'))
 const dev = process.argv[1].endsWith('dev.mjs')
 const command = dev ? 'dev' : process.argv[2]
 const args = process.argv.slice(dev ? 2 : 3)
-appendFileSync(join(root, 'calls.jsonl'), JSON.stringify({ command, args, cwd: process.cwd() }) + '\n')
+appendFileSync(join(root, 'calls.jsonl'), JSON.stringify({
+    command, args, cwd: process.cwd(),
+    stdinIsTTY: Boolean(process.stdin.isTTY), stdoutIsTTY: Boolean(process.stdout.isTTY)
+}) + '\n')
 const head = 'a'.repeat(40)
 const target = dev ? join(args[args.indexOf('--mirror') + 1], 'external/onebot-poke') : process.cwd()
 const source = join(root, 'source')
@@ -104,6 +107,9 @@ if (command === 'ps') {
         console.log(JSON.stringify({ versions: [manifest.version], 'dist-tags': { [channel]: manifest.version } }))
     } else if (args[0] === 'publish') {
         const otp = args.find((arg) => arg.startsWith('--otp='))
+        if (options.requirePublishTty && !otp && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+            fail('EOTP: non-interactive publish cannot open browser authentication')
+        }
         if (otp) console.error(`测试命令回显 ${otp}`)
         if (options.publishFailure) fail('simulated publish failure')
         console.log('fixture npm completed')

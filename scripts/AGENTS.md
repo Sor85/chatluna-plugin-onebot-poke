@@ -6,6 +6,7 @@
 - 开发同步继续使用 `dev.mjs` 的目录归属标记与符号链接检查。发布时只读取 `--mirror` 指定副本的已安装依赖和 workspace 元数据，`dev.mjs sync/check` 的目标必须是本次新建的临时 workspace，不得指向运行副本。
 - 发布使用 `node scripts/publish.mjs`；`--dry-run` 在全新的临时目录执行构建、测试、打包与 npm 演练，但不上传、不创建或推送标签。演练允许未提交状态，便于新仓库验证流程。
 - 支持 `--otp=<验证码>`、`--mirror <目录>` 和 `--help`。副本位置与开发脚本一致，也读取 `CHATLUNA_V2_ROOT`；所有输出及失败信息须隐藏 OTP。
+- npm 发布阶段在真实交互终端中且未指定 OTP 时继承终端，不把 stdout 接到管道，否则 npm 会跳过浏览器鉴权。显式 `--otp` 仍捕获并脱敏输出；其他构建、Git 和 npm 查询继续捕获输出，保证日志脱敏及 JSON 解析。非交互环境不模拟真实登录或代用户完成鉴权。
 - 发布 package.json 中的现有版本，不自动更新版本、安装依赖、提交、创建仓库或推送分支。正式运行前必须已有提交、工作区干净、非 detached HEAD、HEAD 与 origin 同名分支完全一致；本地和远端无同名 Git 标签，npm 已登录且目标版本不存在。
 - 正式发布与演练不检查或停止宿主进程，不修改原副本任何 workspace 的源码、产物或安装状态。`release-workspace.mjs` 复制根配置、锁文件、安装状态和 workspace 的 package.json；仅本插件在临时 workspace 内复制完整源码。临时 node_modules 是独立目录，依赖包逐个链接到现有安装，缓存目录留在临时根；不得链接整个 node_modules 或 .yarn，也不得运行 install 或全仓构建。链接不是文件系统只读权限，构建命令必须始终限定临时插件，不得写入依赖链接目标。
 - 发布流程：创建隔离 workspace → 在其中同步本插件源码（初始无 lib/dist/tsbuildinfo）→ 复用 `dev.mjs check` 定向构建 → `yarn pack` → 解压到独立 package 目录 → 校验包名、版本、入口、声明、客户端清单、README、LICENSE、本地依赖及敏感文件 → 从解压目录执行 `npm publish --ignore-scripts`。不复制宿主 .yarnrc.yml 中的凭证，拒绝目标包的 prepack/postpack hooks；不可用 npm pack 代替 Yarn pack，也不可直接发布 tgz。

@@ -21,12 +21,15 @@ function redact(value) {
     return otp ? String(value).split(otp).join('[已隐藏]') : String(value)
 }
 
-function execute(command, args, { cwd = source, quiet = false, allowFailure = false } = {}) {
+function execute(command, args, { cwd = source, quiet = false, allowFailure = false, interactive = false } = {}) {
     if (!quiet) console.log(`[publish] ${redact([command, ...args].join(' '))}`)
+    // npm only starts browser MFA when both stdin and stdout are TTYs.
+    // Explicit OTP mode keeps captured output so the supplied code stays redacted.
+    const attachTerminal = interactive && !otp && process.stdin.isTTY && process.stdout.isTTY
     const result = spawnSync(command, args, {
         cwd,
         encoding: 'utf8',
-        stdio: ['inherit', 'pipe', 'pipe'],
+        stdio: attachTerminal ? 'inherit' : ['inherit', 'pipe', 'pipe'],
         maxBuffer: 64 * 1024 * 1024,
         shell: process.platform === 'win32' && ['npm', 'yarn'].includes(command)
     })
@@ -117,6 +120,7 @@ async function main() {
 --mirror   ChatLuna 开发副本，默认 ../../chatluna-v2-mirror，也可用 CHATLUNA_V2_ROOT
 
 正式发布经 npm 版本与 dist-tag 确认后，才创建并推送 v<版本> 标签。
+在真实终端中不传 --otp 时，npm 原生提示并打开网页完成鉴权；显式 OTP 模式保留输出脱敏。
 正式发布和演练均使用临时 workspace，不同步、清理或停止运行中的开发副本。
 打包产物保留在系统临时目录；脚本不安装依赖、不启动服务、不推送分支。`)
         return
@@ -197,7 +201,7 @@ async function main() {
     const publishArgs = ['publish', packageDir, '--access', 'public', '--tag', channel, '--registry', registry, '--ignore-scripts']
     if (dryRun) publishArgs.push('--dry-run')
     if (otp) publishArgs.push(`--otp=${otp}`)
-    execute('npm', publishArgs)
+    execute('npm', publishArgs, { interactive: true })
     if (dryRun) {
         console.log(`[publish] 演练完成，未上传、未创建或推送标签。产物：${tarball}`)
         return
