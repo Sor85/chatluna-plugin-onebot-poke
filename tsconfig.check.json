@@ -5,6 +5,7 @@
     "jsx": "react-jsx",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["node", "react", "react-dom"],
+    "noPropertyAccessFromIndexSignature": false,
     "noEmit": true,
     "composite": false,
     "incremental": false

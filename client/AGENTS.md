@@ -8,3 +8,4 @@
 - 保留数组顺序、重复项、零权重、空内容、空数组及未知字段。新增行用 `inferFallback` 真正写入子字段默认值；增删后重置单元格本地草稿，避免输入值串行。行操作只保留删除，不提供上移、下移或拖动排序，已有数组顺序保持不变。
 - 根容器显式指定字号与行高。表格横向溢出沿用宿主 Table；不覆盖宿主滚动条、指针、模态或原生控件行为。字段说明集中保留在表格下方，不删减。
 - `@chatluna/ui-client` 是客户端构建发现标记，即使没有直接导入也保留为开发依赖；构建产物位于副本 `dist`。新增 Tailwind 类后须完整重启宿主再验证。
+- `tsconfig.check.json` 与 `tsconfig.client.json` 关闭 `noPropertyAccessFromIndexSignature`：`@chatluna/ui-schema-form/client` 以源码导出，按宿主 `tsconfig.client.json`（未开启该项）编写，继承服务端严格规则会把宿主源码判为错误。服务端 `src` 仍由 `tsconfig.json` 构建时按严格规则检查。
