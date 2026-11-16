@@ -1,6 +1,6 @@
 {
   "name": "chatluna-plugin-onebot-poke",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "响应 NapCat、SnowLuma、LLBOT 的 OneBot 戳一戳事件，按权重回复预设消息或执行指令，支持响应间隔和作用域设置",
   "type": "module",
   "license": "MIT",
