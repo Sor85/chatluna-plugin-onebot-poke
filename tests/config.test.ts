@@ -22,7 +22,9 @@ describe('plugin configuration', () => {
         expect(config.actions).toEqual([])
         expect(Config.type).toBe('intersect')
         expect(Config.list?.map((group) => group.meta.description))
-            .toEqual(['响应范围', '响应间隔', '响应内容'])
+            .toEqual(['响应内容', '响应范围', '响应间隔'])
+        expect(Config.list?.map((group) => Boolean(group.meta.collapse)))
+            .toEqual([false, true, true])
     })
 
     it('keeps disabled and fractional weights, fractional and zero cooldowns', () => {

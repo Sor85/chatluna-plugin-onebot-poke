@@ -39,15 +39,17 @@ ChatLuna 插件，响应 **NapCat、SnowLuma、LLBOT（LuckyLilliaBot）** 的 O
 
 上述配置仅为手动添加后的示例，概率分别为 70%、20%、10%。默认响应列表为空，不添加示例内容；配置有效响应后才会回复消息或执行指令。
 
+设置页中「响应内容」分组默认展开；「响应范围」和「响应间隔」分组默认折叠，点击分组标题即可展开。
+
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
+| `actions[].type` | `message` | `message` 回复消息；`command` 执行指令 |
+| `actions[].weight` | `1` | 非负相对权重，0 为禁用 |
+| `actions[].content` | 空字符串 | 消息正文或不含前缀的指令 |
 | `group` | `true` | 群聊响应 |
 | `private` | `true` | 私聊响应 |
 | `cooldownSeconds` | `1` | 响应间隔，单位秒，范围 0–86400，支持小数 |
 | `cooldownScope` | `user` | `user`：会话内每位用户独立；`channel`：会话共用；`bot`：当前机器人全局共用 |
-| `actions[].type` | `message` | `message` 回复消息；`command` 执行指令 |
-| `actions[].weight` | `1` | 非负相对权重，0 为禁用 |
-| `actions[].content` | 空字符串 | 消息正文或不含前缀的指令 |
 
 ### 消息和指令
 
